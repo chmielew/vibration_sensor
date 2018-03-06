@@ -1,17 +1,15 @@
-/** main.c */
+/*
+ * measurement.c
+ *
+ *  Created on: 7 mar 2018
+ *      Author: chmielew
+ */
+
+
 //////////////////////////////////////////////////////////////////////////////////////////
 //Includes																				//
 //////////////////////////////////////////////////////////////////////////////////////////
-
-#include "freertos/FreeRTOS.h"
-#include "esp_system.h"
-#include "esp_event.h"
-#include "esp_event_loop.h"
-#include "nvs_flash.h"
-
-#include "task_creator.h"
-#include "../components/heartbeat/heartbeat.h"
-#include "../components/measurement/measurement.h"
+#include "measurement.h"
 
 //////////////////////////////////////////////////////////////////////////////////////////
 //Macros																				//
@@ -28,42 +26,34 @@
 //////////////////////////////////////////////////////////////////////////////////////////
 //Static functions prototypes															//
 //////////////////////////////////////////////////////////////////////////////////////////
-
 /****************************************************************************************\
 Function:
-entry_initialization
+
 ******************************************************************************************
 Parameters:
-None.
+
 ******************************************************************************************
 Abstract:
-This function calls the init functions.
+
 \****************************************************************************************/
-void entry_initialization(void);
 
 //////////////////////////////////////////////////////////////////////////////////////////
 //Global functions definitions															//
 //////////////////////////////////////////////////////////////////////////////////////////
-
-void app_main(void)
+void measurement_Init(adc1_channel_t channel, adc_atten_t attenuation, adc_bits_width_t width)
 {
-	entry_initialization();
-	entry_task_creator();
+	adc1_config_width(width);
+	adc1_config_channel_atten(channel, attenuation);
 
-    while (1) {
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-    }
 }
-
+/****************************************************************************************/
+uint16_t measurement_Read(adc1_channel_t channel)
+{
+	return adc1_get_raw(channel);
+}
 //////////////////////////////////////////////////////////////////////////////////////////
 //Static functions definitions															//
 //////////////////////////////////////////////////////////////////////////////////////////
-
-void entry_initialization(void)
-{
-	nvs_flash_init();
-	heartbeat_init();
-}
 
 //////////////////////////////////////////////////////////////////////////////////////////
 //End of file																			//
