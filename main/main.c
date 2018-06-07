@@ -12,8 +12,12 @@
 /** application includes */
 #include "task_creator.h"
 #include "../components/heartbeat/heartbeat.h"
-#include "../components/measurement/measurement.h"
 #include "../components/ble_communication/ble_communication.h"
+#include "../components/threshold_exceeded_notification/threshold_exceeded_notification.h"
+#include "../components/measurement/measurement.h"
+
+/** debug includes*/
+
 
 //////////////////////////////////////////////////////////////////////////////////////////
 //Macros																				//
@@ -67,7 +71,7 @@ void entry_initialization(void)
 	heartbeat_init();
 
 	ble_communication_init();
-
+	threshold_exceeded_init(4000);
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////

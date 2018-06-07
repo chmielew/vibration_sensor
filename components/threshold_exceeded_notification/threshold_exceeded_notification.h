@@ -1,13 +1,12 @@
 /*
- * ble_communication.h
+ * threshold_exceeded_notification.h
  *
- *  Created on: 18 mar 2018
+ *  Created on: May 15, 2018
  *      Author: chmielew
  */
 
-#ifndef COMPONENTS_BLE_COMMUNICATION_BLE_COMMUNICATION_H_
-#define COMPONENTS_BLE_COMMUNICATION_BLE_COMMUNICATION_H_
-
+#ifndef COMPONENTS_THRESHOLD_EXCEEDED_NOTIFICATION_H_
+#define COMPONENTS_THRESHOLD_EXCEEDED_NOTIFICATION_H_
 //////////////////////////////////////////////////////////////////////////////////////////
 //Includes																				//
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -39,11 +38,21 @@ Parameters:
 Abstract:
 
 \****************************************************************************************/
-void ble_communication_init(void);
+void threshold_exceeded_init(uint16_t threshold);
 
-void ble_communication_threshold_exceeded_notification_send(uint16_t exceeded_value);
+void threshold_exceeded_task(void *pvParameter);
+
+void threshold_exceeded_reset(void);
+
+void threshold_exceeded_set_threshold(uint16_t threshold);
+
+uint16_t threshold_exceeded_get_max_val_raw(void);
+
+float threshold_exceeded_get_max_val_voltage(void);
+
+uint16_t * threshold_exceeded_get_max_val_pointer(void);
+
 //////////////////////////////////////////////////////////////////////////////////////////
 //End of file																			//
 //////////////////////////////////////////////////////////////////////////////////////////
-
-#endif /* COMPONENTS_BLE_COMMUNICATION_BLE_COMMUNICATION_H_ */
+#endif /* COMPONENTS_THRESHOLD_EXCEEDED_NOTIFICATION_H_ */

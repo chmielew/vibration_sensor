@@ -10,7 +10,6 @@
 //Includes																				//
 //////////////////////////////////////////////////////////////////////////////////////////
 #include "ble_communication.h"
-#include "stdlib.h"
 #include "freertos/FreeRTOS.h"
 
 /** bluetooth specific includes */
@@ -101,6 +100,7 @@ This is a callback handler for gatts event.
 static void gatts_profile_threshold_exceeded_notification(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
 
 static void set_uuid(uint16_t new_uuid_16bit, uint8_t uuid_tab[]);
+
 
 //////////////////////////////////////////////////////////////////////////////////////////
 //Static variables																		//
@@ -234,6 +234,12 @@ void ble_communication_init()
 }
 
 /****************************************************************************************/
+void ble_communication_threshold_exceeded_notification_send(uint16_t exceeded_value)
+{
+	uint8_t val[2] = {(exceeded_value>>8)&0xff, (exceeded_value)&0xff};
+	esp_ble_gatts_send_indicate(gl_profile_tab[PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION].gatts_if, gl_profile_tab[PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION].conn_id, gl_profile_tab[PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION].char_handle, sizeof(val), val, false);
+}
+
 //////////////////////////////////////////////////////////////////////////////////////////
 //Static functions definitions															//
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -330,10 +336,14 @@ static void gatts_profile_threshold_exceeded_notification(esp_gatts_cb_event_t e
 	case ESP_GATTS_REG_EVT:
 		gl_profile_tab[PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION].service_id.is_primary = true;
 //		TODO: what is the instance id?
-		gl_profile_tab[PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION].service_id.id.inst_id = 0x01;
+		gl_profile_tab[PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION].service_id.id.inst_id = 0x00;
 		gl_profile_tab[PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION].service_id.id.uuid.len = ESP_UUID_LEN_128;
 		set_uuid(GATTS_SERVICE_UUID_THRESHOLD_EXCEEDED_NOTIFICATION, gl_profile_tab[PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION].service_id.id.uuid.uuid.uuid128);
+		esp_ble_gap_set_device_name(DEVICE_NAME);
+		esp_ble_gap_config_adv_data(&adv_data);
+		esp_ble_gap_config_adv_data(&scan_rsp_data);
 		esp_ble_gatts_create_service(gatts_if, &gl_profile_tab[PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION].service_id, 0x2e);
+
 		break;
 	case ESP_GATTS_READ_EVT:{
 		esp_gatt_rsp_t rsp;
@@ -343,9 +353,11 @@ static void gatts_profile_threshold_exceeded_notification(esp_gatts_cb_event_t e
 		rsp.attr_value.value[0] = 0xde;
 		rsp.attr_value.value[1] = 0xad;
 		esp_ble_gatts_send_response(gatts_if, param->read.conn_id, param->read.trans_id, ESP_GATT_OK, &rsp);
+
 	}
 		break;
 	case ESP_GATTS_WRITE_EVT:
+
 		break;
 	case ESP_GATTS_EXEC_WRITE_EVT:
 		break;
@@ -362,11 +374,18 @@ static void gatts_profile_threshold_exceeded_notification(esp_gatts_cb_event_t e
 
 		esp_ble_gatts_start_service(gl_profile_tab[PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION].service_handle);
 		esp_ble_gatts_add_char(gl_profile_tab[PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION].service_handle, &gl_profile_tab[PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION].char_uuid,
-		ESP_GATT_PERM_READ, ESP_GATT_CHAR_PROP_BIT_READ | ESP_GATT_CHAR_PROP_BIT_NOTIFY, &gatts_demo_char1_val, NULL);
+		ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE, ESP_GATT_CHAR_PROP_BIT_WRITE | ESP_GATT_CHAR_PROP_BIT_READ | ESP_GATT_CHAR_PROP_BIT_NOTIFY, &gatts_demo_char1_val, NULL);
 		break;
 	case ESP_GATTS_ADD_INCL_SRVC_EVT:
 		break;
-	case ESP_GATTS_ADD_CHAR_EVT:
+	case ESP_GATTS_ADD_CHAR_EVT:;
+		uint16_t length = 0;
+		const uint8_t *prf_char;
+		gl_profile_tab[PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION].char_handle = param->add_char.attr_handle;
+		gl_profile_tab[PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION].descr_uuid.len = ESP_UUID_LEN_16;
+		gl_profile_tab[PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION].descr_uuid.uuid.uuid16 = ESP_GATT_UUID_CHAR_CLIENT_CONFIG;
+		esp_ble_gatts_get_attr_value(param->add_char.attr_handle, &length, &prf_char);
+		esp_ble_gatts_add_char_descr(gl_profile_tab[PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION].service_handle, &gl_profile_tab[PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION].descr_uuid, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE, NULL, NULL);
 		break;
 	case ESP_GATTS_ADD_CHAR_DESCR_EVT:
 		break;
