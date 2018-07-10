@@ -17,12 +17,12 @@
 #include "../components/measurement/measurement.h"
 
 /** debug includes*/
-
-
+#include "esp_log.h"
+extern uint16_t current_measurement;
 //////////////////////////////////////////////////////////////////////////////////////////
 //Macros																				//
 //////////////////////////////////////////////////////////////////////////////////////////
-
+#define ACCELEROMETER_ADC_CHANNEL (ADC1_CHANNEL_7)
 //////////////////////////////////////////////////////////////////////////////////////////
 //Local typedefs																		//
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -55,8 +55,21 @@ void app_main(void)
 {
 	entry_initialization();
 	entry_task_creator();
+	uint16_t * measurement_ptr;
+	measurement_ptr = measurement_trigger(10, 2);
 
     while (1) {
+    	ESP_LOGI("A", "%d", current_measurement);
+    	if(20 == current_measurement){
+    		for(uint8_t a=0; a<20; a++){
+    		    	ESP_LOGI("before", "%d", *(measurement_ptr+a));
+    		    	}
+    		free(measurement_ptr);
+    		measurement_ptr = measurement_trigger(10, 2);
+    		for(uint8_t a=0; a<20; a++){
+    		    	ESP_LOGI("After", "%d", *(measurement_ptr+a));
+    		    	}
+    	}
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
 }
@@ -71,7 +84,9 @@ void entry_initialization(void)
 	heartbeat_init();
 
 	ble_communication_init();
-	threshold_exceeded_init(4000);
+	measurement_Init(ACCELEROMETER_ADC_CHANNEL, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12);
+//	threshold_exceeded_init(4000);
+	measurement_trigger(1, 1);
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////

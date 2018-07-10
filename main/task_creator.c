@@ -49,7 +49,7 @@ Abstract:
 void entry_task_creator(void)
 {
     xTaskCreate(&heartbeat_task, "heartbeat_task", configMINIMAL_STACK_SIZE, NULL, 5, NULL);
-    xTaskCreate(&threshold_exceeded_task, "threshold_exceeded_task", 1536, NULL, 5, NULL);
+//    xTaskCreate(&threshold_exceeded_task, "threshold_exceeded_task", 1536, NULL, 5, NULL);
 }
 /****************************************************************************************/
 
