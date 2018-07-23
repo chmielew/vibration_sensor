@@ -28,7 +28,9 @@
 //////////////////////////////////////////////////////////////////////////////////////////
 static uint16_t max_measurement_number;
 static uint16_t * measurement_ptr;
-uint16_t current_measurement;
+static uint16_t current_measurement;
+static measurement_status current_status = MEASUREMENT_NOT_INITIALIZED;
+
 //////////////////////////////////////////////////////////////////////////////////////////
 //Static functions prototypes															//
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -63,6 +65,7 @@ void measurement_Init(adc1_channel_t channel, adc_atten_t attenuation, adc_bits_
 	config.intr_type = TIMER_INTR_LEVEL;
 	timer_isr_register(TIMER_GROUP_0, TIMER_0, measurement_timer_interrupt_function, (void*)NULL, ESP_INTR_FLAG_IRAM, NULL);
 	timer_init(TIMER_GROUP_0, TIMER_0, &config);
+	current_status = MEASUREMENT_INITIALIZED;
 }
 /****************************************************************************************/
 uint16_t measurement_Read(adc1_channel_t channel)
@@ -84,8 +87,13 @@ uint16_t * measurement_trigger(uint16_t frequency, float duration)
 	TIMERG0.hw_timer[0].config.alarm_en = TIMER_ALARM_EN;
 	timer_start(TIMER_GROUP_0, TIMER_0);
 	current_measurement = 0;
-
+	current_status = MEASUREMENT_ACTIVE;
 	return measurement_ptr;
+}
+
+/****************************************************************************************/
+measurement_status measurement_GetStatus(void){
+	return current_status;
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -97,12 +105,13 @@ void IRAM_ATTR measurement_timer_interrupt_function(void *param)
 	if(current_measurement < max_measurement_number){
 		TIMERG0.int_clr_timers.t0 = 1;
 		TIMERG0.hw_timer[0].config.alarm_en = TIMER_ALARM_EN;
-		++current_measurement;
 		*(measurement_ptr+current_measurement) = adc1_get_raw(ACCELEROMETER_ADC_CHANNEL);
+		++current_measurement;
 	}else{
 		TIMERG0.int_clr_timers.t0 = 1;
 		timer_pause(TIMER_GROUP_0, TIMER_0);
 		timer_disable_intr(TIMER_GROUP_0, TIMER_0);
+		current_status = MEASUREMENT_FINISHED;
 	}
 }
 
