@@ -25,7 +25,7 @@ typedef enum {
 
 typedef union _calculation_factor_type {
 	uint16_t integer_type;
-	double double_type;
+	float float_type;
 } calculation_factor_type;
 
 //////////////////////////////////////////////////////////////////////////////////////////

@@ -26,7 +26,7 @@
 //////////////////////////////////////////////////////////////////////////////////////////
 //Macros																				//
 //////////////////////////////////////////////////////////////////////////////////////////
-#define DEVICE_NAME            "ESP_VIBRATION_SENSOR"
+#define DEVICE_NAME		"ESP_VIBRATION_SENSOR"
 
 /** (GAP) advertising configuration macros */
 #define ADV_CONFIG_FLAG      (1 << 0)
@@ -35,14 +35,24 @@
 /** (GATTS) macros */
 #define INITIALIZE_UUID_TABLE(uuid)	{0x00, 0x00, 0x9B, 0x5F, 0x80, 0x00, 0x00, 0x80, 0x00, 0x10, 0x00, 0x00, (uint8_t)(uuid>>0), (uint8_t)(uuid>>8), 0x00, 0x00}
 
-#define PROFILE_NUM 1
+#define PROFILE_NUM 2
 
 /** profile_threshold_exceeded_notification parameters */
 #define PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION 0
 #define GATTS_SERVICE_UUID_THRESHOLD_EXCEEDED_NOTIFICATION	((uint16_t)0x0100)
 #define GATTS_CHAR_UUID_THRESHOLD_EXCEEDED_NOTIFICATION		((uint16_t)(GATTS_SERVICE_UUID_THRESHOLD_EXCEEDED_NOTIFICATION + 0x0001))
 
-#define GATTS_DEMO_CHAR_VAL_LEN_MAX 0x40
+/** profile_get_calculated_values parameters */
+#define PROFILE_GET_CALCULATED_VALUES 1
+#define GATTS_SERVICE_UUID_GET_CALCULATED_VALUES	((uint16_t)0x0200)
+#define GATTS_CHAR_UUID_GET_RMS_VALUE				((uint16_t)(GATTS_SERVICE_UUID_GET_CALCULATED_VALUES + 0x0001))
+#define GATTS_CHAR_UUID_GET_AVERAGE_VALUE			((uint16_t)(GATTS_SERVICE_UUID_GET_CALCULATED_VALUES + 0x0002))
+#define GATTS_CHAR_UUID_GET_MAX_VALUE				((uint16_t)(GATTS_SERVICE_UUID_GET_CALCULATED_VALUES + 0x0003))
+#define GATTS_CHAR_UUID_GET_MIN_VALUE				((uint16_t)(GATTS_SERVICE_UUID_GET_CALCULATED_VALUES + 0x0004))
+#define GATTS_CHAR_UUID_GET_AMPLITUDE_VALUE			((uint16_t)(GATTS_SERVICE_UUID_GET_CALCULATED_VALUES + 0x0005))
+#define GATTS_CHAR_UUID_GET_CREST_FACTOR_VALUE		((uint16_t)(GATTS_SERVICE_UUID_GET_CALCULATED_VALUES + 0x0006))
+
+#define GATTS_CHAR_VAL_LEN_MAX 0x40
 
 /** device BLE TAG */
 #define GATTS_TAG "VIBRATION SENSOR"
@@ -65,6 +75,7 @@ gap_event_handler
 ******************************************************************************************
 Parameters:
 esp_gap_ble_cb_event_t event - gap callback event type
+
 esp_ble_gap_cb_param_t *param - gap callback parameters union
 ******************************************************************************************
 Abstract:
@@ -98,9 +109,11 @@ Abstract:
 This is a callback handler for gatts event.
 \****************************************************************************************/
 static void gatts_profile_threshold_exceeded_notification(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
+static void gatts_profile_get_calculated_values(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
+
 
 static void set_uuid(uint16_t new_uuid_16bit, uint8_t uuid_tab[]);
-
+static void initialize_calculated_values_attr_vals_array(void);
 
 //////////////////////////////////////////////////////////////////////////////////////////
 //Static variables																		//
@@ -186,15 +199,33 @@ static struct gatts_profile_inst gl_profile_tab[PROFILE_NUM] = {
 	[PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION] = {
 			.gatts_cb = gatts_profile_threshold_exceeded_notification,
 			.gatts_if = ESP_GATT_IF_NONE,
+	},
+	[PROFILE_GET_CALCULATED_VALUES] = {
+			.gatts_cb = gatts_profile_get_calculated_values,
+			.gatts_if = ESP_GATT_IF_NONE,
 	}
 
 };
-//TODO: get to know what is it used for, why we have to register this?
+
+static const uint16_t calculated_values_char_uuid[MAX_CALCULATED_VALUES] =
+{
+	GATTS_CHAR_UUID_GET_RMS_VALUE,
+	GATTS_CHAR_UUID_GET_AVERAGE_VALUE,
+	GATTS_CHAR_UUID_GET_MAX_VALUE,
+	GATTS_CHAR_UUID_GET_MIN_VALUE,
+	GATTS_CHAR_UUID_GET_AMPLITUDE_VALUE,
+	GATTS_CHAR_UUID_GET_CREST_FACTOR_VALUE
+};
+
+static esp_attr_value_t calculated_values_attr_val_tab[MAX_CALCULATED_VALUES];
+
+static calculated_val_rsp calculated_vals_response_tab[MAX_CALCULATED_VALUES];
+
 uint8_t char1_str[] = {0x11,0x22,0x33};
 
 esp_attr_value_t gatts_demo_char1_val =
 {
-    .attr_max_len = GATTS_DEMO_CHAR_VAL_LEN_MAX,
+    .attr_max_len = GATTS_CHAR_VAL_LEN_MAX,
     .attr_len     = sizeof(char1_str),
     .attr_value   = char1_str,
 };
@@ -229,6 +260,7 @@ void ble_communication_init()
 
     /** register app profiles */
 	esp_ble_gatts_app_register(PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION);
+	esp_ble_gatts_app_register(PROFILE_GET_CALCULATED_VALUES);
 	/** set mtu */
 	esp_ble_gatt_set_local_mtu(500);
 }
@@ -238,6 +270,12 @@ void ble_communication_threshold_exceeded_notification_send(uint16_t exceeded_va
 {
 	uint8_t val[2] = {(exceeded_value>>8)&0xff, (exceeded_value)&0xff};
 	esp_ble_gatts_send_indicate(gl_profile_tab[PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION].gatts_if, gl_profile_tab[PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION].conn_id, gl_profile_tab[PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION].char_handle, sizeof(val), val, false);
+}
+
+/****************************************************************************************/
+void ble_communication_update_calculated_value(calculated_value type, float val)
+{
+	calculated_vals_response_tab[type].float_type = val;
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -353,7 +391,6 @@ static void gatts_profile_threshold_exceeded_notification(esp_gatts_cb_event_t e
 		rsp.attr_value.value[0] = 0xde;
 		rsp.attr_value.value[1] = 0xad;
 		esp_ble_gatts_send_response(gatts_if, param->read.conn_id, param->read.trans_id, ESP_GATT_OK, &rsp);
-
 	}
 		break;
 	case ESP_GATTS_WRITE_EVT:
@@ -418,6 +455,140 @@ static void gatts_profile_threshold_exceeded_notification(esp_gatts_cb_event_t e
 	}
 }
 
+static void gatts_profile_get_calculated_values(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param)
+{
+	switch(event){
+	case ESP_GATTS_REG_EVT:
+		gl_profile_tab[PROFILE_GET_CALCULATED_VALUES].service_id.is_primary = true;
+//		TODO: what is the instance id?
+		gl_profile_tab[PROFILE_GET_CALCULATED_VALUES].service_id.id.inst_id = 0x00;
+		gl_profile_tab[PROFILE_GET_CALCULATED_VALUES].service_id.id.uuid.len = ESP_UUID_LEN_128;
+		set_uuid(GATTS_SERVICE_UUID_GET_CALCULATED_VALUES,
+				gl_profile_tab[PROFILE_GET_CALCULATED_VALUES].service_id.id.uuid.uuid.uuid128);
+		esp_ble_gap_set_device_name(DEVICE_NAME);
+		esp_ble_gap_config_adv_data(&adv_data);
+		esp_ble_gap_config_adv_data(&scan_rsp_data);
+		esp_ble_gatts_create_service(gatts_if,
+				&gl_profile_tab[PROFILE_GET_CALCULATED_VALUES].service_id, 0x2e);
+
+		break;
+	case ESP_GATTS_READ_EVT:{
+		//TODO: get to know how to corelate characteristics with their handles and correct this
+#define RMS_VALUE_HANDLE			0x58
+#define AVERAGE_VALUE_HANDLE		0x5a
+#define MAX_VALUE_HANDLE			0x5c
+#define MIN_VALUE_HANDLE			0x5e
+#define AMPLITUDE_VALUE_HANDLE		0x60
+#define CREST_FACTOR_VALUE_HANDLE	0x62
+		esp_gatt_rsp_t rsp;
+		memset(&rsp, 0, sizeof(esp_gatt_rsp_t));
+		rsp.attr_value.handle = param->read.handle;
+		rsp.attr_value.len = sizeof(float);
+		switch (param->read.handle) {
+		case RMS_VALUE_HANDLE:
+			memcpy(rsp.attr_value.value, calculated_vals_response_tab[RMS_VALUE].int_type,
+					rsp.attr_value.len);
+			break;
+		case AVERAGE_VALUE_HANDLE:
+			memcpy(rsp.attr_value.value, calculated_vals_response_tab[AVERAGE_VALUE].int_type,
+								rsp.attr_value.len);
+			break;
+		case MAX_VALUE_HANDLE:
+			memcpy(rsp.attr_value.value, calculated_vals_response_tab[MAX_VALUE].int_type,
+								rsp.attr_value.len);
+			break;
+		case MIN_VALUE_HANDLE:
+			memcpy(rsp.attr_value.value, calculated_vals_response_tab[MIN_VALUE].int_type,
+								rsp.attr_value.len);
+			break;
+		case AMPLITUDE_VALUE_HANDLE:
+			memcpy(rsp.attr_value.value, calculated_vals_response_tab[AMPLITUDE_VALUE].int_type,
+								rsp.attr_value.len);
+			break;
+		case CREST_FACTOR_VALUE_HANDLE:
+			memcpy(rsp.attr_value.value, calculated_vals_response_tab[CREST_FACTOR_VALUE].int_type,
+								rsp.attr_value.len);
+			break;
+		}
+		esp_ble_gatts_send_response(gatts_if, param->read.conn_id, param->read.trans_id,
+				ESP_GATT_OK, &rsp);
+		break;
+	}
+	case ESP_GATTS_WRITE_EVT:
+		break;
+	case ESP_GATTS_EXEC_WRITE_EVT:
+		break;
+	case ESP_GATTS_MTU_EVT:
+		break;
+	case ESP_GATTS_CONF_EVT:
+		break;
+	case ESP_GATTS_UNREG_EVT:
+		break;
+	case ESP_GATTS_CREATE_EVT:
+		initialize_calculated_values_attr_vals_array();
+
+		gl_profile_tab[PROFILE_GET_CALCULATED_VALUES].service_handle = param->create.service_handle;
+		gl_profile_tab[PROFILE_GET_CALCULATED_VALUES].char_uuid.len = ESP_UUID_LEN_128;
+
+		/* Add all the characteristics */
+		esp_attr_control_t response_config = {.auto_rsp = ESP_GATT_RSP_BY_APP};
+		for(uint8_t i = 0; i<MAX_CALCULATED_VALUES; ++i){
+			set_uuid(calculated_values_char_uuid[i],
+					gl_profile_tab[PROFILE_GET_CALCULATED_VALUES].char_uuid.uuid.uuid128);
+			esp_ble_gatts_add_char(
+					gl_profile_tab[PROFILE_GET_CALCULATED_VALUES].service_handle,
+					&gl_profile_tab[PROFILE_GET_CALCULATED_VALUES].char_uuid,
+					ESP_GATT_PERM_READ,
+					ESP_GATT_CHAR_PROP_BIT_READ, &(calculated_values_attr_val_tab[i]),
+					&response_config);
+		}
+		esp_ble_gatts_start_service(gl_profile_tab[PROFILE_GET_CALCULATED_VALUES].service_handle);
+		break;
+	case ESP_GATTS_ADD_INCL_SRVC_EVT:
+		break;
+	case ESP_GATTS_ADD_CHAR_EVT:;
+		uint16_t length = 0;
+		const uint8_t *prf_char;
+		gl_profile_tab[PROFILE_GET_CALCULATED_VALUES].char_handle = param->add_char.attr_handle;
+		gl_profile_tab[PROFILE_GET_CALCULATED_VALUES].descr_uuid.len = ESP_UUID_LEN_16;
+		gl_profile_tab[PROFILE_GET_CALCULATED_VALUES].descr_uuid.uuid.uuid16 =
+				ESP_GATT_UUID_CHAR_CLIENT_CONFIG;
+		esp_ble_gatts_get_attr_value(param->add_char.attr_handle, &length, &prf_char);
+		esp_ble_gatts_add_char_descr(gl_profile_tab[PROFILE_GET_CALCULATED_VALUES].service_handle,
+				&gl_profile_tab[PROFILE_GET_CALCULATED_VALUES].descr_uuid,
+				ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE, NULL, NULL);
+		break;
+	case ESP_GATTS_ADD_CHAR_DESCR_EVT:
+		break;
+	case ESP_GATTS_DELETE_EVT:
+		break;
+	case ESP_GATTS_START_EVT:
+		break;
+	case ESP_GATTS_STOP_EVT:
+		break;
+	case ESP_GATTS_CONNECT_EVT:
+		break;
+	case ESP_GATTS_DISCONNECT_EVT:
+		break;
+	case ESP_GATTS_OPEN_EVT:
+		break;
+	case ESP_GATTS_CANCEL_OPEN_EVT:
+		break;
+	case ESP_GATTS_CLOSE_EVT:
+		break;
+	case ESP_GATTS_LISTEN_EVT:
+		break;
+	case ESP_GATTS_CONGEST_EVT:
+		break;
+	case ESP_GATTS_RESPONSE_EVT:
+		break;
+	case ESP_GATTS_CREAT_ATTR_TAB_EVT:
+		break;
+	case ESP_GATTS_SET_ATTR_VAL_EVT:
+		break;
+	}
+}
+
 /****************************************************************************************/
 static void set_uuid(uint16_t new_uuid_16bit, uint8_t uuid_tab[])
 {
@@ -425,6 +596,17 @@ static void set_uuid(uint16_t new_uuid_16bit, uint8_t uuid_tab[])
 	memcpy(uuid_tab, new_uuid_tab, ESP_UUID_LEN_128);
 }
 
+static void initialize_calculated_values_attr_vals_array(void)
+{
+	//TODO: get to know how to not register it
+	for(uint8_t i = 0; i<MAX_CALCULATED_VALUES; ++i){
+		calculated_values_attr_val_tab[i].attr_len = sizeof(float);
+		calculated_values_attr_val_tab[i].attr_max_len = GATTS_CHAR_VAL_LEN_MAX;
+		calculated_values_attr_val_tab[i].attr_value = calculated_vals_response_tab[i].int_type;
+	}
+}
+
 //////////////////////////////////////////////////////////////////////////////////////////
 //End of file																			//
 //////////////////////////////////////////////////////////////////////////////////////////
+

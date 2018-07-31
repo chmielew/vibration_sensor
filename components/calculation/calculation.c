@@ -19,12 +19,12 @@
 //////////////////////////////////////////////////////////////////////////////////////////
 struct Calculation_obj {
 	uint16_t size;
-	double rms;
-	double average;
+	float rms;
+	float average;
 	uint16_t max_val;
 	uint16_t min_val;
 	uint16_t amplitude;
-	double crest_factor;
+	float crest_factor;
 	uint16_t data[];
 };
 
@@ -120,7 +120,7 @@ calculation_factor_type calculation_get_factor(Calculation_obj_handle obj, calcu
 //////////////////////////////////////////////////////////////////////////////////////////
 static void calculation_rms(Calculation_obj_handle obj)
 {
-	double sum = 0;
+	float sum = 0;
 	for (int16_t iterator = (obj->size - 1); iterator >= 0; --iterator) {
 		sum += pow((obj->data[iterator]),2.0);
 	}
