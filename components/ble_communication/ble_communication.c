@@ -35,7 +35,7 @@
 /** (GATTS) macros */
 #define INITIALIZE_UUID_TABLE(uuid)	{0x00, 0x00, 0x9B, 0x5F, 0x80, 0x00, 0x00, 0x80, 0x00, 0x10, 0x00, 0x00, (uint8_t)(uuid>>0), (uint8_t)(uuid>>8), 0x00, 0x00}
 
-#define PROFILE_NUM 2
+#define PROFILE_NUM 3
 
 /** profile_threshold_exceeded_notification parameters */
 #define PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION 0
@@ -51,6 +51,12 @@
 #define GATTS_CHAR_UUID_GET_MIN_VALUE				((uint16_t)(GATTS_SERVICE_UUID_GET_CALCULATED_VALUES + 0x0004))
 #define GATTS_CHAR_UUID_GET_AMPLITUDE_VALUE			((uint16_t)(GATTS_SERVICE_UUID_GET_CALCULATED_VALUES + 0x0005))
 #define GATTS_CHAR_UUID_GET_CREST_FACTOR_VALUE		((uint16_t)(GATTS_SERVICE_UUID_GET_CALCULATED_VALUES + 0x0006))
+
+/** profile_trigger_measurement */
+#define PROFILE_TRIGGER_MEASUREMENT 2
+#define GATTS_SERVICE_UUID_TRIGGER_MEASUREMENT 	((uint16_t)0x0300)
+#define GATTS_CHAR_UUID_TRIGGER_MEASUREMENT		((uint16_t)(GATTS_SERVICE_UUID_TRIGGER_MEASUREMENT+0x0001))
+#define MEASUREMENT_TRIGGER_WRITE_VAL			(0x01)
 
 #define GATTS_CHAR_VAL_LEN_MAX 0x40
 
@@ -110,7 +116,7 @@ This is a callback handler for gatts event.
 \****************************************************************************************/
 static void gatts_profile_threshold_exceeded_notification(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
 static void gatts_profile_get_calculated_values(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
-
+static void gatts_profile_trigger_measurement(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
 
 static void set_uuid(uint16_t new_uuid_16bit, uint8_t uuid_tab[]);
 static void initialize_calculated_values_attr_vals_array(void);
@@ -203,8 +209,11 @@ static struct gatts_profile_inst gl_profile_tab[PROFILE_NUM] = {
 	[PROFILE_GET_CALCULATED_VALUES] = {
 			.gatts_cb = gatts_profile_get_calculated_values,
 			.gatts_if = ESP_GATT_IF_NONE,
+	},
+	[PROFILE_TRIGGER_MEASUREMENT] = {
+			.gatts_cb = gatts_profile_trigger_measurement,
+			.gatts_if = ESP_GATT_IF_NONE,
 	}
-
 };
 
 static const uint16_t calculated_values_char_uuid[MAX_CALCULATED_VALUES] =
@@ -220,6 +229,8 @@ static const uint16_t calculated_values_char_uuid[MAX_CALCULATED_VALUES] =
 static esp_attr_value_t calculated_values_attr_val_tab[MAX_CALCULATED_VALUES];
 
 static calculated_val_rsp calculated_vals_response_tab[MAX_CALCULATED_VALUES];
+
+static bool measurement_trigger_request = false;
 
 uint8_t char1_str[] = {0x11,0x22,0x33};
 
@@ -261,6 +272,7 @@ void ble_communication_init()
     /** register app profiles */
 	esp_ble_gatts_app_register(PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION);
 	esp_ble_gatts_app_register(PROFILE_GET_CALCULATED_VALUES);
+	esp_ble_gatts_app_register(PROFILE_TRIGGER_MEASUREMENT);
 	/** set mtu */
 	esp_ble_gatt_set_local_mtu(500);
 }
@@ -276,6 +288,16 @@ void ble_communication_threshold_exceeded_notification_send(uint16_t exceeded_va
 void ble_communication_update_calculated_value(calculated_value type, float val)
 {
 	calculated_vals_response_tab[type].float_type = val;
+}
+
+/****************************************************************************************/
+bool ble_communication_is_measurement_requested(void)
+{
+	if(true == measurement_trigger_request){
+		measurement_trigger_request = false;
+		return true;
+	}
+	return false;
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -590,12 +612,114 @@ static void gatts_profile_get_calculated_values(esp_gatts_cb_event_t event, esp_
 }
 
 /****************************************************************************************/
+static void gatts_profile_trigger_measurement(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param)
+{
+switch(event){
+	case ESP_GATTS_REG_EVT:
+		gl_profile_tab[PROFILE_TRIGGER_MEASUREMENT].service_id.is_primary = true;
+//		TODO: what is the instance id?
+		gl_profile_tab[PROFILE_TRIGGER_MEASUREMENT].service_id.id.inst_id = 0x00;
+		gl_profile_tab[PROFILE_TRIGGER_MEASUREMENT].service_id.id.uuid.len = ESP_UUID_LEN_128;
+		set_uuid(GATTS_SERVICE_UUID_TRIGGER_MEASUREMENT,
+				gl_profile_tab[PROFILE_TRIGGER_MEASUREMENT].service_id.id.uuid.uuid.uuid128);
+		esp_ble_gap_set_device_name(DEVICE_NAME);
+		esp_ble_gap_config_adv_data(&adv_data);
+		esp_ble_gap_config_adv_data(&scan_rsp_data);
+		esp_ble_gatts_create_service(gatts_if,
+				&gl_profile_tab[PROFILE_TRIGGER_MEASUREMENT].service_id, 0x2e);
+
+		break;
+	case ESP_GATTS_READ_EVT:
+		break;
+	case ESP_GATTS_WRITE_EVT:{
+		/* for some reason 0 element is always 0 no matter what is written,
+		 * also when char-write-cmd in gatttool the value has to be 0x01 not 0x1
+		 * */
+		if(param->write.value[1] == MEASUREMENT_TRIGGER_WRITE_VAL){
+			/*trigger measurement */
+			measurement_trigger_request = true;
+		}
+		break;
+	}
+	case ESP_GATTS_EXEC_WRITE_EVT:
+		break;
+	case ESP_GATTS_MTU_EVT:
+		break;
+	case ESP_GATTS_CONF_EVT:
+		break;
+	case ESP_GATTS_UNREG_EVT:
+		break;
+	case ESP_GATTS_CREATE_EVT:
+		initialize_calculated_values_attr_vals_array();
+
+		gl_profile_tab[PROFILE_TRIGGER_MEASUREMENT].service_handle = param->create.service_handle;
+		gl_profile_tab[PROFILE_TRIGGER_MEASUREMENT].char_uuid.len = ESP_UUID_LEN_128;
+
+		/* Add all the characteristics */
+		esp_attr_control_t response_config = {.auto_rsp = ESP_GATT_RSP_BY_APP};
+			set_uuid(GATTS_CHAR_UUID_TRIGGER_MEASUREMENT,
+					gl_profile_tab[PROFILE_TRIGGER_MEASUREMENT].char_uuid.uuid.uuid128);
+			esp_ble_gatts_add_char(
+					gl_profile_tab[PROFILE_TRIGGER_MEASUREMENT].service_handle,
+					&gl_profile_tab[PROFILE_TRIGGER_MEASUREMENT].char_uuid,
+					ESP_GATT_PERM_WRITE,
+					ESP_GATT_CHAR_PROP_BIT_WRITE, &(gatts_demo_char1_val),
+					&response_config);
+		esp_ble_gatts_start_service(gl_profile_tab[PROFILE_TRIGGER_MEASUREMENT].service_handle);
+		break;
+	case ESP_GATTS_ADD_INCL_SRVC_EVT:
+		break;
+	case ESP_GATTS_ADD_CHAR_EVT:;
+		uint16_t length = 0;
+		const uint8_t *prf_char;
+		gl_profile_tab[PROFILE_TRIGGER_MEASUREMENT].char_handle = param->add_char.attr_handle;
+		gl_profile_tab[PROFILE_TRIGGER_MEASUREMENT].descr_uuid.len = ESP_UUID_LEN_16;
+		gl_profile_tab[PROFILE_TRIGGER_MEASUREMENT].descr_uuid.uuid.uuid16 =
+				ESP_GATT_UUID_CHAR_CLIENT_CONFIG;
+		esp_ble_gatts_get_attr_value(param->add_char.attr_handle, &length, &prf_char);
+		esp_ble_gatts_add_char_descr(gl_profile_tab[PROFILE_TRIGGER_MEASUREMENT].service_handle,
+				&gl_profile_tab[PROFILE_TRIGGER_MEASUREMENT].descr_uuid,
+				ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE, NULL, NULL);
+		break;
+	case ESP_GATTS_ADD_CHAR_DESCR_EVT:
+		break;
+	case ESP_GATTS_DELETE_EVT:
+		break;
+	case ESP_GATTS_START_EVT:
+		break;
+	case ESP_GATTS_STOP_EVT:
+		break;
+	case ESP_GATTS_CONNECT_EVT:
+		break;
+	case ESP_GATTS_DISCONNECT_EVT:
+		break;
+	case ESP_GATTS_OPEN_EVT:
+		break;
+	case ESP_GATTS_CANCEL_OPEN_EVT:
+		break;
+	case ESP_GATTS_CLOSE_EVT:
+		break;
+	case ESP_GATTS_LISTEN_EVT:
+		break;
+	case ESP_GATTS_CONGEST_EVT:
+		break;
+	case ESP_GATTS_RESPONSE_EVT:
+		break;
+	case ESP_GATTS_CREAT_ATTR_TAB_EVT:
+		break;
+	case ESP_GATTS_SET_ATTR_VAL_EVT:
+		break;
+	}
+}
+
+/****************************************************************************************/
 static void set_uuid(uint16_t new_uuid_16bit, uint8_t uuid_tab[])
 {
 	uint8_t new_uuid_tab[16] = INITIALIZE_UUID_TABLE(new_uuid_16bit);
 	memcpy(uuid_tab, new_uuid_tab, ESP_UUID_LEN_128);
 }
 
+/****************************************************************************************/
 static void initialize_calculated_values_attr_vals_array(void)
 {
 	//TODO: get to know how to not register it

@@ -56,19 +56,20 @@ void app_main(void)
 {
 	entry_initialization();
 	entry_task_creator();
-	uint16_t * measurement_ptr;
-	measurement_ptr = measurement_trigger(11, 2);
-	uint8_t flag = 0;
-	ble_communication_update_calculated_value(RMS_VALUE, (float)1.0);
-	ble_communication_update_calculated_value(AVERAGE_VALUE, (float)1.1);
-	ble_communication_update_calculated_value(MIN_VALUE, (float)1.2);
-	ble_communication_update_calculated_value(MAX_VALUE, (float)1.3);
-	ble_communication_update_calculated_value(CREST_FACTOR_VALUE, (float)1.4);
-	ble_communication_update_calculated_value(AMPLITUDE_VALUE, (float)1.5);
+	bool flag = 0;
+	uint16_t * measurement_ptr = NULL;
     while (1) {
-    	if((0 == flag) && (MEASUREMENT_FINISHED == measurement_GetStatus())){
+    	if(true == ble_communication_is_measurement_requested()){
+    		measurement_ptr = measurement_trigger(11, 2);
+    		flag = 1;
+    	}
+
+    	if(1 == flag && (MEASUREMENT_FINISHED == measurement_GetStatus())){
     		Calculation_obj_handle obj = calculation_NewObj(measurement_ptr, 20);
+    		if(NULL != measurement_ptr){
     		free(measurement_ptr);
+    		measurement_ptr = NULL;
+    		}
     		calculation_calculate_factors(obj);
 
     		ESP_LOGI("RMS:","%f", (calculation_get_factor(obj, CALCULATION_RMS).float_type));
@@ -78,13 +79,16 @@ void app_main(void)
     		ESP_LOGI("AMPLITUDE:","%d",calculation_get_factor(obj, CALCULATION_AMPLITUDE).integer_type);
     		ESP_LOGI("CREST FACTOR:","%f",calculation_get_factor(obj, CALCULATION_CREST_FACTOR).float_type);
 
-    		uint16_t * calc_ptr = calculation_get_data_ptr(obj);
-    		flag = 1;
-    		for(uint8_t iter = 0; iter<20; ++iter){
-    		ESP_LOGI("DATA calc:", "%d", *(calc_ptr+iter));
-    		}
-
-    		free(obj);
+    		ble_communication_update_calculated_value(RMS_VALUE, (calculation_get_factor(obj, CALCULATION_RMS).float_type));
+			ble_communication_update_calculated_value(AVERAGE_VALUE, calculation_get_factor(obj, CALCULATION_AVERAGE).float_type);
+			ble_communication_update_calculated_value(MIN_VALUE, calculation_get_factor(obj, CALCULATION_MINVAL).float_type);
+			ble_communication_update_calculated_value(MAX_VALUE, calculation_get_factor(obj, CALCULATION_MAXVAL).float_type);
+			ble_communication_update_calculated_value(CREST_FACTOR_VALUE, calculation_get_factor(obj, CALCULATION_CREST_FACTOR).float_type);
+			ble_communication_update_calculated_value(AMPLITUDE_VALUE, calculation_get_factor(obj, CALCULATION_AMPLITUDE).float_type);
+			if(NULL != obj){
+			free(obj);
+			}
+			flag = 0;
     	}
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
