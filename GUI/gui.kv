@@ -1,0 +1,402 @@
+#:kivy 1.10.1
+#:set text_color (0.78, 0.78, 0.78, 1)
+#:set background_color (0.12, 0.12, 0.12, 1)
+#:set error_text_color (0.73, 0.25, 0.27, 1)
+ 
+SensorScreenManager:
+    ConnectScreen:
+    ControlScreen:
+
+<ConnectScreen>:
+    name: 'screen_connect'
+
+    BoxLayout:
+        orientation: 'vertical'
+        size_hint: (None, None)
+        center: self.parent.center
+        height:
+            label_title.height + \
+            label_error.height + \
+            textinput_address.height + \
+            button_connect.height + 80
+        width: 400
+        spacing: 20
+        padding: 10
+
+        canvas:
+            Color:
+                rgba: background_color
+            Rectangle:
+                size: self.size
+                pos: self.pos
+
+        Label:
+            id: label_title
+
+            size_hint_y: None
+            height: 80
+            color: text_color
+            text: 'Vibration sensor'
+            font_size: 50
+
+        Label:
+            id: label_error
+
+            text: ''
+            font_size: 15
+            size_hint_y: None
+            height: 30
+            color: error_text_color
+
+        TextInput:
+            id: textinput_address
+
+            multiline: False
+            size_hint_y: None
+            height: 30
+            on_text: root.update_padding(args[0])
+            hint_text: 'Sensor BLE address'
+            padding_x: 10
+
+        Button:
+            id: button_connect
+
+            size_hint_y: None
+            height: 30
+            on_release: root.connect_to_sensor(textinput_address.text)
+            text: 'Connect'
+            font_size: 15
+
+<ControlScreen>:
+    name: 'screen_control'
+
+    Accordion:
+        id: accordion_main
+
+        orientation: 'vertical'
+        AccordionItem:
+            id: accordion_measurement_configuration
+
+            title: 'Measurement configuration'
+            collapse: False
+
+            AnchorLayout:
+
+                StackLayout:
+
+                    orientation: 'tb-lr'
+                    size_hint: (None, 1)
+                    center: self.parent.center
+                    width: 800
+                    spacing: 20
+                    padding: 200, 200
+                    canvas.before:
+                        Color:
+                            rgba: background_color
+                        Rectangle:
+                            size: self.size
+                            pos: self.pos
+
+                    Label:
+                        text: 'Set up the measurement'
+                        size_hint_y: (None)
+                        font_size: 20
+                        height: 30
+                        color: text_color
+
+                    TextInput:
+                        id: textinput_measurement_frequency
+
+                        multiline: False
+                        size_hint_y: (None)
+                        height: 30
+                        hint_text: 'Sampling rate in Hz'
+                        padding_x: 10
+
+                    TextInput:
+                        id: textinput_measurement_length
+
+                        multiline: False
+                        size_hint_y: (None)
+                        height: 30
+                        hint_text: 'Length in seconds'
+                        padding_x: 10
+
+                    Button:
+
+                        size_hint_y: None
+                        height: 30
+                        text: 'Trigger measurement'
+                        on_release:
+                            root.start_measurement(
+                            frequency=textinput_measurement_frequency.text,
+                            length=textinput_measurement_length.text)
+
+                    Label:
+                   
+                        size_hint_y: (None)
+                        height: 30
+                        color: text_color
+                        text: 'Progress: {}%'.format(int(progressbar_measurement.value))
+
+                    ProgressBar:
+                        id: progressbar_measurement
+
+                        size_hint_y: (None)
+                        height: 30
+
+        TimeResultsAccordion:
+            id: accordion_time_results
+
+            title: 'Time based measurement results'
+
+        AccordionItem:
+            id: accordion_time_indicators
+
+            title: 'Time based calculated indicators'
+
+            AnchorLayout:
+
+                StackLayout:
+
+                    orientation: 'lr-tb'
+                    size_hint: (None, 1)
+                    center: self.parent.center
+                    width: 800
+                    spacing: 20
+                    padding: 150, 250
+                    canvas.before:
+                        Color:
+                            rgba: background_color
+                        Rectangle:
+                            size: self.size
+                            pos: self.pos
+
+                    Label:
+                       
+                        text: 'Time based calculated indicators'
+                        size_hint_y: (None)
+                        font_size: 20
+                        height: 30
+                        color: text_color
+
+                    Label:
+
+                        text: 'RMS'
+                        size_hint: (None, None)
+                        height: 30
+                        width: 200
+                        color: text_color
+
+                    TextInput:
+                        id: textinput_indicator_rms
+
+                        multiline: False
+                        size_hint: (None, None)
+                        width: 200
+                        height: 30
+                        padding_x: 10
+                        readonly: True
+                        hint_text: 'No data'           
+
+                    Label:
+
+                        text: 'Average'
+                        size_hint: (None, None)
+                        height: 30
+                        width: 200
+                        color: text_color
+
+                    TextInput:
+
+                        id: textinput_indicator_average
+
+                        multiline: False
+                        size_hint: (None, None)
+                        width: 200
+                        height: 30
+                        padding_x: 10
+                        readonly: True
+                        hint_text: 'No data'
+
+                    Label:
+
+                        text: 'Max value'
+                        size_hint: (None, None)
+                        height: 30
+                        width: 200
+                        color: text_color
+
+                    TextInput:
+                        id: textinput_indicator_maxval
+
+                        multiline: False
+                        size_hint: (None, None)
+                        width: 200
+                        height: 30
+                        padding_x: 10
+                        readonly: True
+                        hint_text: 'No data'
+
+                    Label:
+
+                        text: 'Min value'
+                        size_hint: (None, None)
+                        height: 30
+                        width: 200
+                        color: text_color
+
+                    TextInput:
+                        id: textinput_indicator_minval
+
+                        multiline: False
+                        size_hint: (None, None)
+                        width: 200
+                        height: 30
+                        padding_x: 10
+                        readonly: True
+                        hint_text: 'No data'
+
+                    Label:
+
+                        text: 'Amplitude'
+                        size_hint: (None, None)
+                        height: 30
+                        width: 200
+                        color: text_color
+
+                    TextInput:
+                        id: textinput_indicator_amplitude
+
+                        multiline: False
+                        size_hint: (None, None)
+                        width: 200
+                        height: 30
+                        padding_x: 10
+                        readonly: True
+                        hint_text: 'No data'
+
+                    Label:
+
+                        text: 'Crest factor'
+                        size_hint: (None, None)
+                        height: 30
+                        width: 200
+                        color: text_color
+
+                    TextInput:
+                        id: textinput_indicator_crestfactor
+
+                        multiline: False
+                        size_hint: (None, None)
+                        width: 200
+                        height: 30
+                        padding_x: 10
+                        readonly: True
+                        hint_text: 'No data'
+
+        FftResultsAccordion:
+            id: accordion_fourier_results
+
+            title: 'Fourier transform results'
+
+        AccordionItem:
+            id: accordion_monitoring
+
+            title: 'Threshold exceeded monitoring'
+
+            AnchorLayout:
+
+                StackLayout:
+
+                    orientation: 'lr-tb'
+                    size_hint: (None, 1)
+                    center: self.parent.center
+                    width: 800
+                    spacing: 20
+                    padding: 150, 250
+                    canvas.before:
+                        Color:
+                            rgba: background_color
+                        Rectangle:
+                            size: self.size
+                            pos: self.pos
+
+                    Label:
+                        text: 'Set the threshold for monitoring'
+                        size_hint_y: (None)
+                        font_size: 20
+                        height: 30
+                        color: text_color
+
+                    TextInput:
+                        id: textinput_monitoring_threshold
+        
+                        multiline: False
+                        size_hint_y: (None)
+                        height: 30
+                        hint_text: 'Threshold value'
+                        padding_x: 10
+
+                    Button:
+
+                        size_hint_y: None
+                        height: 30
+                        text: 'Set threshold'
+                        on_release: root.set_monitoring_threshold(textinput_monitoring_threshold.text)
+
+                    Label:
+                        id: label_time_from_last_threshold_exceeded
+
+                        size_hint_y: (None)
+                        height: 30
+                        color: text_color
+                        text: 'Time from last threshold exceeded event: {} s' .format('0.0')
+
+        AccordionItem:
+            id: accordion_disconnect
+
+            title: 'Disconnect'           
+
+            AnchorLayout:
+
+                StackLayout:
+
+                    orientation: 'tb-lr'
+                    size_hint: (None, 1)
+                    center: self.parent.center
+                    width: 800
+                    spacing: 20
+                    padding: 200, 200
+                    canvas.before:
+                        Color:
+                            rgba: background_color
+                        Rectangle:
+                            size: self.size
+                            pos: self.pos
+
+                    Label:
+
+                        text: 'Disconnect the sensor and exit application.'
+                        size_hint_y: (None)
+                        font_size: 20
+                        height: 30
+                        color: text_color
+
+                    Button:
+                        on_release:
+                            exit()
+                        text: 'Disconnect'
+                        size_hint: (None, None)
+                        width: 400
+                        height: 30
+
+                    Label:
+                        id: label_footer
+
+                        text: '\n\n\nVibration sensor\nPaweł Chmielewski\nchmielewp@gmail.com\n2018'
+                        size_hint: (None, None)
+                        width: 400
+                        height: 30
+                        color: text_color
+                        italic: True

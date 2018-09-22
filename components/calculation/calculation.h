@@ -59,6 +59,8 @@ uint16_t * calculation_get_data_ptr(Calculation_obj_handle obj);
 void calculation_calculate_factors(Calculation_obj_handle obj);
 
 calculation_factor_type calculation_get_factor(Calculation_obj_handle obj, calculation_factors factor);
+
+uint8_t * calculation_calculate_fft(Calculation_obj_handle obj);
 //////////////////////////////////////////////////////////////////////////////////////////
 //End of file																			//
 //////////////////////////////////////////////////////////////////////////////////////////

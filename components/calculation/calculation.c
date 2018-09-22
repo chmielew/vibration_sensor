@@ -5,7 +5,9 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include "fft.h"
 
+#include "esp_log.h"
 //////////////////////////////////////////////////////////////////////////////////////////
 //Macros																				//
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -113,6 +115,32 @@ calculation_factor_type calculation_get_factor(Calculation_obj_handle obj, calcu
 		return (calculation_factor_type)(uint16_t)0;
 		break;
 	}
+}
+
+uint8_t * calculation_calculate_fft(Calculation_obj_handle obj)
+{
+	complex * input = (complex*) malloc(sizeof(struct complex_t)*obj->size);
+	for(uint8_t i = 0; i<obj->size ; ++i){
+		input[i].re = (double) obj->data[i];
+		input[i].im = (double) 0.0;
+	}
+	complex * result;
+	result = DFT_naive(input, obj->size);
+	free(input);
+	double divider = 0.0;
+	uint16_t fft_size = (obj->size/2)+1;
+	for(uint16_t i = 0; i < fft_size; ++i){
+		if(divider<fabs(result[i].re)){
+			divider = fabs(result[i].re);
+		}
+	}
+	uint8_t * fft_data = (uint8_t *) malloc(sizeof(uint8_t)*fft_size);
+	for (uint16_t i = 0; i < fft_size; ++i) {
+			fft_data[i] = (uint8_t)floor(200*(fabs(result[i].re)/divider));
+			ESP_LOGI("DATA","%d",fft_data[i]);
+	}
+	free(result);
+	return fft_data;
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////

@@ -75,6 +75,7 @@ uint16_t measurement_Read(adc1_channel_t channel)
 /****************************************************************************************/
 uint16_t * measurement_trigger(uint16_t frequency, float duration)
 {
+	if(duration > 0 && frequency > 0){
 	uint32_t counter = frequency*duration;
 	measurement_ptr = malloc(counter*sizeof(uint16_t));
 	max_measurement_number = counter;
@@ -89,6 +90,9 @@ uint16_t * measurement_trigger(uint16_t frequency, float duration)
 	current_measurement = 0;
 	current_status = MEASUREMENT_ACTIVE;
 	return measurement_ptr;
+	}else{
+		return NULL;
+	}
 }
 
 /****************************************************************************************/

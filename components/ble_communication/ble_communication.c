@@ -19,6 +19,8 @@
 #include "esp_gatts_api.h"
 #include "esp_gatt_common_api.h"
 
+#include "../threshold_exceeded_notification/threshold_exceeded_notification.h"
+
 /** debug includes */
 #include "esp_log.h"
 #include <string.h>
@@ -35,12 +37,13 @@
 /** (GATTS) macros */
 #define INITIALIZE_UUID_TABLE(uuid)	{0x00, 0x00, 0x9B, 0x5F, 0x80, 0x00, 0x00, 0x80, 0x00, 0x10, 0x00, 0x00, (uint8_t)(uuid>>0), (uint8_t)(uuid>>8), 0x00, 0x00}
 
-#define PROFILE_NUM 3
+#define PROFILE_NUM 5
 
 /** profile_threshold_exceeded_notification parameters */
 #define PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION 0
 #define GATTS_SERVICE_UUID_THRESHOLD_EXCEEDED_NOTIFICATION	((uint16_t)0x0100)
 #define GATTS_CHAR_UUID_THRESHOLD_EXCEEDED_NOTIFICATION		((uint16_t)(GATTS_SERVICE_UUID_THRESHOLD_EXCEEDED_NOTIFICATION + 0x0001))
+#define THRESHOLD_EXCEEDED_WRITE_VAL						(0x01)
 
 /** profile_get_calculated_values parameters */
 #define PROFILE_GET_CALCULATED_VALUES 1
@@ -57,6 +60,16 @@
 #define GATTS_SERVICE_UUID_TRIGGER_MEASUREMENT 	((uint16_t)0x0300)
 #define GATTS_CHAR_UUID_TRIGGER_MEASUREMENT		((uint16_t)(GATTS_SERVICE_UUID_TRIGGER_MEASUREMENT+0x0001))
 #define MEASUREMENT_TRIGGER_WRITE_VAL			(0x01)
+
+/** profile_get_time_results */
+#define PROFILE_GET_TIME_RESULTS 3
+#define GATTS_SERVICE_UUID_GET_TIME_RESULTS ((uint16_t)0x0400)
+#define GATTS_CHAR_UUID_GET_TIME_RESULTS	((uint16_t)(GATTS_SERVICE_UUID_GET_TIME_RESULTS+0x0001))
+
+/** profile_get_fft_results */
+#define PROFILE_GET_FFT_RESULTS 4
+#define GATTS_SERVICE_UUID_GET_FFT_RESULTS	 	((uint16_t)0x0500)
+#define GATTS_CHAR_UUID_GET_FFT_RESULTS			((uint16_t)(GATTS_SERVICE_UUID_GET_FFT_RESULTS+0x0001))
 
 #define GATTS_CHAR_VAL_LEN_MAX 0x40
 
@@ -117,10 +130,14 @@ This is a callback handler for gatts event.
 static void gatts_profile_threshold_exceeded_notification(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
 static void gatts_profile_get_calculated_values(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
 static void gatts_profile_trigger_measurement(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
+static void gatts_profile_get_time_results(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
+static void gatts_profile_get_fft_results(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
 
 static void set_uuid(uint16_t new_uuid_16bit, uint8_t uuid_tab[]);
 static void initialize_calculated_values_attr_vals_array(void);
-
+static void reset_measurement_request_struct(void);
+static void reset_time_measured_struct(void);
+static void reset_fft_data_struct(void);
 //////////////////////////////////////////////////////////////////////////////////////////
 //Static variables																		//
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -213,7 +230,15 @@ static struct gatts_profile_inst gl_profile_tab[PROFILE_NUM] = {
 	[PROFILE_TRIGGER_MEASUREMENT] = {
 			.gatts_cb = gatts_profile_trigger_measurement,
 			.gatts_if = ESP_GATT_IF_NONE,
-	}
+	},
+	[PROFILE_GET_TIME_RESULTS] = {
+				.gatts_cb = gatts_profile_get_time_results,
+				.gatts_if = ESP_GATT_IF_NONE,
+	},
+	[PROFILE_GET_FFT_RESULTS] = {
+					.gatts_cb = gatts_profile_get_fft_results,
+					.gatts_if = ESP_GATT_IF_NONE,
+		}
 };
 
 static const uint16_t calculated_values_char_uuid[MAX_CALCULATED_VALUES] =
@@ -230,7 +255,23 @@ static esp_attr_value_t calculated_values_attr_val_tab[MAX_CALCULATED_VALUES];
 
 static calculated_val_rsp calculated_vals_response_tab[MAX_CALCULATED_VALUES];
 
-static bool measurement_trigger_request = false;
+static struct _measurement_trigger_request{
+	uint16_t frequency;
+	float duration;
+	bool is_requested;
+} measurement_trigger_request;
+
+static struct _time_measured_data{
+	uint16_t size;
+	uint16_t *data;
+	uint16_t current_pos;
+} time_measured_data;
+
+static struct _fft_data{
+	uint16_t size;
+	uint8_t *data;
+	uint16_t current_pos;
+} fft_data;
 
 uint8_t char1_str[] = {0x11,0x22,0x33};
 
@@ -246,6 +287,9 @@ esp_attr_value_t gatts_demo_char1_val =
 //////////////////////////////////////////////////////////////////////////////////////////
 void ble_communication_init()
 {
+	reset_measurement_request_struct();
+	reset_time_measured_struct();
+	reset_fft_data_struct();
 	/** BT controller initialization */
 	esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
 	esp_bt_controller_init(&bt_cfg);
@@ -273,6 +317,9 @@ void ble_communication_init()
 	esp_ble_gatts_app_register(PROFILE_THRESHOLD_EXCEEDED_NOTIFICATION);
 	esp_ble_gatts_app_register(PROFILE_GET_CALCULATED_VALUES);
 	esp_ble_gatts_app_register(PROFILE_TRIGGER_MEASUREMENT);
+	esp_ble_gatts_app_register(PROFILE_GET_TIME_RESULTS);
+	esp_ble_gatts_app_register(PROFILE_GET_FFT_RESULTS);
+
 	/** set mtu */
 	esp_ble_gatt_set_local_mtu(500);
 }
@@ -293,11 +340,45 @@ void ble_communication_update_calculated_value(calculated_value type, float val)
 /****************************************************************************************/
 bool ble_communication_is_measurement_requested(void)
 {
-	if(true == measurement_trigger_request){
-		measurement_trigger_request = false;
-		return true;
-	}
-	return false;
+	return measurement_trigger_request.is_requested;
+}
+
+float ble_communication_get_requested_measurement_duration(void)
+{
+	return measurement_trigger_request.duration;
+}
+uint16_t ble_communication_get_requested_measurement_frequency(void)
+{
+	return measurement_trigger_request.frequency;
+}
+
+void ble_communication_measurement_request_handled(void)
+{
+	reset_measurement_request_struct();
+}
+
+void ble_communication_update_time_measured_data(uint16_t *data, uint16_t size)
+{
+	time_measured_data.current_pos = 0;
+	time_measured_data.data = data;
+	time_measured_data.size = size;
+}
+
+void ble_communication_update_fft_data(uint8_t *data, uint16_t size)
+{
+	fft_data.current_pos = 0;
+	fft_data.data = data;
+	fft_data.size = size;
+	ESP_LOGI("SIZE BLE","%d",fft_data.size);
+}
+void ble_communication_calculation_completed_notification_send(void)
+{
+	uint8_t val = 0xff;
+	esp_ble_gatts_send_indicate(
+			gl_profile_tab[PROFILE_TRIGGER_MEASUREMENT].gatts_if,
+			gl_profile_tab[PROFILE_TRIGGER_MEASUREMENT].conn_id,
+			gl_profile_tab[PROFILE_TRIGGER_MEASUREMENT].char_handle,
+			sizeof(val), &val, false);
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -416,7 +497,13 @@ static void gatts_profile_threshold_exceeded_notification(esp_gatts_cb_event_t e
 	}
 		break;
 	case ESP_GATTS_WRITE_EVT:
-
+		ESP_LOGI("HI","");
+		if (param->write.value[1] == THRESHOLD_EXCEEDED_WRITE_VAL) {
+			uint16_t threshold = param->write.value[2] << 8
+					| param->write.value[3];
+			threshold_exceeded_set_threshold(threshold);
+			ESP_LOGI("HI from inside","%d", threshold);
+		}
 		break;
 	case ESP_GATTS_EXEC_WRITE_EVT:
 		break;
@@ -637,7 +724,10 @@ switch(event){
 		 * */
 		if(param->write.value[1] == MEASUREMENT_TRIGGER_WRITE_VAL){
 			/*trigger measurement */
-			measurement_trigger_request = true;
+			measurement_trigger_request.is_requested = true;
+			measurement_trigger_request.frequency = param->write.value[2]<<8 | param->write.value[3];
+			uint32_t *ptr = (uint32_t*)&(measurement_trigger_request.duration);
+			*ptr = (param->write.value[4]<<24 | param->write.value[5]<<16 | param->write.value[6]<<8 | param->write.value[7]);
 		}
 		break;
 	}
@@ -663,7 +753,7 @@ switch(event){
 					gl_profile_tab[PROFILE_TRIGGER_MEASUREMENT].service_handle,
 					&gl_profile_tab[PROFILE_TRIGGER_MEASUREMENT].char_uuid,
 					ESP_GATT_PERM_WRITE,
-					ESP_GATT_CHAR_PROP_BIT_WRITE, &(gatts_demo_char1_val),
+					ESP_GATT_CHAR_PROP_BIT_WRITE  | ESP_GATT_CHAR_PROP_BIT_NOTIFY, &(gatts_demo_char1_val),
 					&response_config);
 		esp_ble_gatts_start_service(gl_profile_tab[PROFILE_TRIGGER_MEASUREMENT].service_handle);
 		break;
@@ -713,6 +803,255 @@ switch(event){
 }
 
 /****************************************************************************************/
+
+static void gatts_profile_get_time_results(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param)
+{
+	switch(event){
+	case ESP_GATTS_REG_EVT:
+		gl_profile_tab[PROFILE_GET_TIME_RESULTS].service_id.is_primary = true;
+//		TODO: what is the instance id?
+		gl_profile_tab[PROFILE_GET_TIME_RESULTS].service_id.id.inst_id = 0x00;
+		gl_profile_tab[PROFILE_GET_TIME_RESULTS].service_id.id.uuid.len = ESP_UUID_LEN_128;
+		set_uuid(GATTS_SERVICE_UUID_GET_TIME_RESULTS,
+				gl_profile_tab[PROFILE_GET_TIME_RESULTS].service_id.id.uuid.uuid.uuid128);
+		esp_ble_gap_set_device_name(DEVICE_NAME);
+		esp_ble_gap_config_adv_data(&adv_data);
+		esp_ble_gap_config_adv_data(&scan_rsp_data);
+		esp_ble_gatts_create_service(gatts_if,
+				&gl_profile_tab[PROFILE_GET_TIME_RESULTS].service_id, 0x2e);
+
+		break;
+	case ESP_GATTS_READ_EVT:{
+#define FIRST_FRAME_IDN		0x1
+#define MORE_DATA_IDN 		0x2
+#define NO_MORE_DATA_IDN	0x3
+#define FRAME_SIZE	21
+		esp_gatt_rsp_t rsp;
+		if(NULL != time_measured_data.data){
+			if(time_measured_data.current_pos >= (time_measured_data.size-((time_measured_data.size)%10)-1)){
+				memset(rsp.attr_value.value, 0xff, FRAME_SIZE);
+				rsp.attr_value.value[0] = NO_MORE_DATA_IDN;
+				memcpy(rsp.attr_value.value+1, time_measured_data.data+(time_measured_data.current_pos), 2*(time_measured_data.size - time_measured_data.current_pos));
+				time_measured_data.current_pos = 0;
+			} else if (0 == time_measured_data.current_pos) {
+				rsp.attr_value.value[0] = FIRST_FRAME_IDN;
+				memcpy(rsp.attr_value.value+1, time_measured_data.data, 20);
+				time_measured_data.current_pos += 10;
+			} else {
+				rsp.attr_value.value[0] = MORE_DATA_IDN;
+				memcpy(rsp.attr_value.value+1, time_measured_data.data+(time_measured_data.current_pos), 20);
+				time_measured_data.current_pos += 10;
+			}
+		} else {
+			memset(rsp.attr_value.value, 0xff, FRAME_SIZE);
+			rsp.attr_value.value[0] = NO_MORE_DATA_IDN;
+		}
+		rsp.attr_value.handle = param->read.handle;
+		rsp.attr_value.len = FRAME_SIZE;
+
+		esp_ble_gatts_send_response(gatts_if, param->read.conn_id,
+				param->read.trans_id, ESP_GATT_OK, &rsp);
+		break;
+	}
+	case ESP_GATTS_WRITE_EVT:
+		break;
+	case ESP_GATTS_EXEC_WRITE_EVT:
+		break;
+	case ESP_GATTS_MTU_EVT:
+		break;
+	case ESP_GATTS_CONF_EVT:
+		break;
+	case ESP_GATTS_UNREG_EVT:
+		break;
+	case ESP_GATTS_CREATE_EVT:
+
+		gl_profile_tab[PROFILE_GET_TIME_RESULTS].service_handle = param->create.service_handle;
+		gl_profile_tab[PROFILE_GET_TIME_RESULTS].char_uuid.len = ESP_UUID_LEN_128;
+
+		/* Add all the characteristics */
+		esp_attr_control_t response_config = {.auto_rsp = ESP_GATT_RSP_BY_APP};
+			set_uuid(GATTS_CHAR_UUID_GET_TIME_RESULTS,
+					gl_profile_tab[PROFILE_GET_TIME_RESULTS].char_uuid.uuid.uuid128);
+			esp_ble_gatts_add_char(
+					gl_profile_tab[PROFILE_GET_TIME_RESULTS].service_handle,
+					&gl_profile_tab[PROFILE_GET_TIME_RESULTS].char_uuid,
+					ESP_GATT_PERM_READ,
+					ESP_GATT_CHAR_PROP_BIT_READ, &gatts_demo_char1_val,
+					&response_config);
+		esp_ble_gatts_start_service(gl_profile_tab[PROFILE_GET_TIME_RESULTS].service_handle);
+		break;
+	case ESP_GATTS_ADD_INCL_SRVC_EVT:
+		break;
+	case ESP_GATTS_ADD_CHAR_EVT:;
+		uint16_t length = 0;
+		const uint8_t *prf_char;
+		gl_profile_tab[PROFILE_GET_TIME_RESULTS].char_handle = param->add_char.attr_handle;
+		gl_profile_tab[PROFILE_GET_TIME_RESULTS].descr_uuid.len = ESP_UUID_LEN_16;
+		gl_profile_tab[PROFILE_GET_TIME_RESULTS].descr_uuid.uuid.uuid16 =
+				ESP_GATT_UUID_CHAR_CLIENT_CONFIG;
+		esp_ble_gatts_get_attr_value(param->add_char.attr_handle, &length, &prf_char);
+		esp_ble_gatts_add_char_descr(gl_profile_tab[PROFILE_GET_TIME_RESULTS].service_handle,
+				&gl_profile_tab[PROFILE_GET_TIME_RESULTS].descr_uuid,
+				ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE, NULL, NULL);
+		break;
+	case ESP_GATTS_ADD_CHAR_DESCR_EVT:
+		break;
+	case ESP_GATTS_DELETE_EVT:
+		break;
+	case ESP_GATTS_START_EVT:
+		break;
+	case ESP_GATTS_STOP_EVT:
+		break;
+	case ESP_GATTS_CONNECT_EVT:
+		break;
+	case ESP_GATTS_DISCONNECT_EVT:
+		break;
+	case ESP_GATTS_OPEN_EVT:
+		break;
+	case ESP_GATTS_CANCEL_OPEN_EVT:
+		break;
+	case ESP_GATTS_CLOSE_EVT:
+		break;
+	case ESP_GATTS_LISTEN_EVT:
+		break;
+	case ESP_GATTS_CONGEST_EVT:
+		break;
+	case ESP_GATTS_RESPONSE_EVT:
+		break;
+	case ESP_GATTS_CREAT_ATTR_TAB_EVT:
+		break;
+	case ESP_GATTS_SET_ATTR_VAL_EVT:
+		break;
+	}
+}
+
+/****************************************************************************************/
+static void gatts_profile_get_fft_results(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param)
+{
+	switch(event){
+	case ESP_GATTS_REG_EVT:
+		gl_profile_tab[PROFILE_GET_FFT_RESULTS].service_id.is_primary = true;
+//		TODO: what is the instance id?
+		gl_profile_tab[PROFILE_GET_FFT_RESULTS].service_id.id.inst_id = 0x00;
+		gl_profile_tab[PROFILE_GET_FFT_RESULTS].service_id.id.uuid.len = ESP_UUID_LEN_128;
+		set_uuid(GATTS_SERVICE_UUID_GET_FFT_RESULTS,
+				gl_profile_tab[PROFILE_GET_FFT_RESULTS].service_id.id.uuid.uuid.uuid128);
+		esp_ble_gap_set_device_name(DEVICE_NAME);
+		esp_ble_gap_config_adv_data(&adv_data);
+		esp_ble_gap_config_adv_data(&scan_rsp_data);
+		esp_ble_gatts_create_service(gatts_if,
+				&gl_profile_tab[PROFILE_GET_FFT_RESULTS].service_id, 0x2e);
+
+		break;
+	case ESP_GATTS_READ_EVT:{
+#define FIRST_FRAME_IDN		0x1
+#define MORE_DATA_IDN 		0x2
+#define NO_MORE_DATA_IDN	0x3
+#define FRAME_SIZE	21
+		esp_gatt_rsp_t rsp;
+		if(NULL != fft_data.data){
+			if(fft_data.current_pos >= (fft_data.size-((fft_data.size)%20)-1)){
+				memset(rsp.attr_value.value, 0xff, FRAME_SIZE);
+				rsp.attr_value.value[0] = NO_MORE_DATA_IDN;
+				ESP_LOGI("INSIDE","%d %d",fft_data.current_pos, fft_data.size - fft_data.current_pos);
+				memcpy(rsp.attr_value.value+1, fft_data.data+(fft_data.current_pos), (fft_data.size - fft_data.current_pos));
+				fft_data.current_pos = 0;
+				ESP_LOGI(GATTS_TAG, "\nNo more data");
+			} else if (0 == fft_data.current_pos) {
+				rsp.attr_value.value[0] = FIRST_FRAME_IDN;
+				memcpy(rsp.attr_value.value+1, fft_data.data, 20);
+				fft_data.current_pos += 20;
+				ESP_LOGI(GATTS_TAG, "\nFirst frame");
+			} else {
+				rsp.attr_value.value[0] = MORE_DATA_IDN;
+				memcpy(rsp.attr_value.value+1, fft_data.data+(fft_data.current_pos), 20);
+				fft_data.current_pos += 20;
+				ESP_LOGI(GATTS_TAG, "\nMore data frame");
+			}
+		} else {
+			memset(rsp.attr_value.value, 0xff, FRAME_SIZE);
+			rsp.attr_value.value[0] = NO_MORE_DATA_IDN;
+			ESP_LOGI(GATTS_TAG, "\nShieet");
+		}
+		rsp.attr_value.handle = param->read.handle;
+		rsp.attr_value.len = FRAME_SIZE;
+		esp_ble_gatts_send_response(gatts_if, param->read.conn_id,
+				param->read.trans_id, ESP_GATT_OK, &rsp);
+		break;
+	}
+	case ESP_GATTS_WRITE_EVT:
+		break;
+	case ESP_GATTS_EXEC_WRITE_EVT:
+		break;
+	case ESP_GATTS_MTU_EVT:
+		break;
+	case ESP_GATTS_CONF_EVT:
+		break;
+	case ESP_GATTS_UNREG_EVT:
+		break;
+	case ESP_GATTS_CREATE_EVT:
+
+		gl_profile_tab[PROFILE_GET_FFT_RESULTS].service_handle = param->create.service_handle;
+		gl_profile_tab[PROFILE_GET_FFT_RESULTS].char_uuid.len = ESP_UUID_LEN_128;
+
+		/* Add all the characteristics */
+		esp_attr_control_t response_config = {.auto_rsp = ESP_GATT_RSP_BY_APP};
+			set_uuid(GATTS_CHAR_UUID_GET_FFT_RESULTS,
+					gl_profile_tab[PROFILE_GET_FFT_RESULTS].char_uuid.uuid.uuid128);
+			esp_ble_gatts_add_char(
+					gl_profile_tab[PROFILE_GET_FFT_RESULTS].service_handle,
+					&gl_profile_tab[PROFILE_GET_FFT_RESULTS].char_uuid,
+					ESP_GATT_PERM_READ,
+					ESP_GATT_CHAR_PROP_BIT_READ, &gatts_demo_char1_val,
+					&response_config);
+		esp_ble_gatts_start_service(gl_profile_tab[PROFILE_GET_FFT_RESULTS].service_handle);
+		break;
+	case ESP_GATTS_ADD_INCL_SRVC_EVT:
+		break;
+	case ESP_GATTS_ADD_CHAR_EVT:;
+		uint16_t length = 0;
+		const uint8_t *prf_char;
+		gl_profile_tab[PROFILE_GET_FFT_RESULTS].char_handle = param->add_char.attr_handle;
+		gl_profile_tab[PROFILE_GET_FFT_RESULTS].descr_uuid.len = ESP_UUID_LEN_16;
+		gl_profile_tab[PROFILE_GET_FFT_RESULTS].descr_uuid.uuid.uuid16 =
+				ESP_GATT_UUID_CHAR_CLIENT_CONFIG;
+		esp_ble_gatts_get_attr_value(param->add_char.attr_handle, &length, &prf_char);
+		esp_ble_gatts_add_char_descr(gl_profile_tab[PROFILE_GET_FFT_RESULTS].service_handle,
+				&gl_profile_tab[PROFILE_GET_FFT_RESULTS].descr_uuid,
+				ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE, NULL, NULL);
+		break;
+	case ESP_GATTS_ADD_CHAR_DESCR_EVT:
+		break;
+	case ESP_GATTS_DELETE_EVT:
+		break;
+	case ESP_GATTS_START_EVT:
+		break;
+	case ESP_GATTS_STOP_EVT:
+		break;
+	case ESP_GATTS_CONNECT_EVT:
+		break;
+	case ESP_GATTS_DISCONNECT_EVT:
+		break;
+	case ESP_GATTS_OPEN_EVT:
+		break;
+	case ESP_GATTS_CANCEL_OPEN_EVT:
+		break;
+	case ESP_GATTS_CLOSE_EVT:
+		break;
+	case ESP_GATTS_LISTEN_EVT:
+		break;
+	case ESP_GATTS_CONGEST_EVT:
+		break;
+	case ESP_GATTS_RESPONSE_EVT:
+		break;
+	case ESP_GATTS_CREAT_ATTR_TAB_EVT:
+		break;
+	case ESP_GATTS_SET_ATTR_VAL_EVT:
+		break;
+	}
+}
+
+/****************************************************************************************/
 static void set_uuid(uint16_t new_uuid_16bit, uint8_t uuid_tab[])
 {
 	uint8_t new_uuid_tab[16] = INITIALIZE_UUID_TABLE(new_uuid_16bit);
@@ -728,6 +1067,28 @@ static void initialize_calculated_values_attr_vals_array(void)
 		calculated_values_attr_val_tab[i].attr_max_len = GATTS_CHAR_VAL_LEN_MAX;
 		calculated_values_attr_val_tab[i].attr_value = calculated_vals_response_tab[i].int_type;
 	}
+}
+
+/****************************************************************************************/
+static void reset_measurement_request_struct(void)
+{
+	measurement_trigger_request.duration = 0;
+	measurement_trigger_request.frequency = 0;
+	measurement_trigger_request.is_requested = false;
+}
+
+static void reset_time_measured_struct(void)
+{
+	time_measured_data.current_pos = 0;
+	time_measured_data.data = NULL;
+	time_measured_data.size = 0;
+}
+
+static void reset_fft_data_struct(void)
+{
+	fft_data.current_pos = 0;
+	fft_data.data = NULL;
+	fft_data.size = 0;
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////

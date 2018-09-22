@@ -60,6 +60,14 @@ void ble_communication_threshold_exceeded_notification_send(uint16_t exceeded_va
 void ble_communication_update_calculated_value(calculated_value type, float val);
 
 bool ble_communication_is_measurement_requested(void);
+
+float ble_communication_get_requested_measurement_duration(void);
+uint16_t ble_communication_get_requested_measurement_frequency(void);
+void ble_communication_measurement_request_handled(void);
+
+void ble_communication_update_time_measured_data(uint16_t *data, uint16_t size);
+void ble_communication_update_fft_data(uint8_t *data, uint16_t size);
+void ble_communication_calculation_completed_notification_send(void);
 //////////////////////////////////////////////////////////////////////////////////////////
 //End of file																			//
 //////////////////////////////////////////////////////////////////////////////////////////

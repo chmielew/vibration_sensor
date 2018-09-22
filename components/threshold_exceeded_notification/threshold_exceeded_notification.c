@@ -65,15 +65,20 @@ void threshold_exceeded_init(uint16_t threshold)
 /****************************************************************************************/
 void threshold_exceeded_task(void *pvParameter)
 {
-	while(1){
-		uint16_t result = measurement_Read(ACCELEROMETER_ADC_CHANNEL);
-		if(result > threshold_exceeded_threshold){
-			threshold_exceeded_max_val_from_reset = result;
-			ble_communication_threshold_exceeded_notification_send(result);
-		} else if(result > threshold_exceeded_max_val_from_reset){
-			threshold_exceeded_max_val_from_reset = result;
+	while (1) {
+		if (0 != threshold_exceeded_threshold) {
+			uint16_t result = measurement_Read(ACCELEROMETER_ADC_CHANNEL);
+			if (result > threshold_exceeded_threshold) {
+				threshold_exceeded_max_val_from_reset = result;
+				ble_communication_threshold_exceeded_notification_send(result);
+				threshold_exceeded_set_threshold(0);
+			} else if (result > threshold_exceeded_max_val_from_reset) {
+				threshold_exceeded_max_val_from_reset = result;
+			}
+			vTaskDelay(1 / portTICK_PERIOD_MS);
+		} else {
+			vTaskDelay(1000 / portTICK_PERIOD_MS);
 		}
-		vTaskDelay(1/portTICK_PERIOD_MS);
 	}
 }
 
@@ -87,6 +92,7 @@ void threshold_exceeded_reset(void)
 void threshold_exceeded_set_threshold(uint16_t threshold)
 {
 	threshold_exceeded_threshold = threshold;
+	reset_max_val();
 }
 
 /****************************************************************************************/
