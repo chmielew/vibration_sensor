@@ -9,7 +9,7 @@ def hexStrToFloat(hexstr):
     return val
 
 def hexStrToInt16(hexstr):
-    val = int(hexstr[0:2],16) + (int(hexstr[3:5],16)<<8)
+    val = int(hexstr[0:5],16)# + (int(hexstr[3:5],16)<<8)
     return val
 
 def hexStrToInt8(hexstr):
@@ -37,7 +37,7 @@ class Sensor:
         }
         self.read_signal_hnd = "0xb4"
         self.read_fft_hnd = "0xe2"
-        
+        self._zero_val_offset = 0
         
         self.child = pexpect.spawn("gatttool -I")
 
@@ -54,7 +54,6 @@ class Sensor:
 
     def trigger_measurement(self, frequency, duration):
         command = "char-write-cmd " + self.hnd_trigger_measurement + " " + self.trigger_measurement_write_value + '{:04x}'.format(int(frequency)) + float_to_hex(float(duration))[2:]
-        print(command)
         self.child.sendline(command)
 
     def read_calculated_value(self, chosen_value):
@@ -66,12 +65,9 @@ class Sensor:
         response = response.replace(" ","")
         response = str(response[-2:] + response[-4:-2] + response[-6:-4] + response[:-6])
         if((self.read_calculated_value_hnd_dict[chosen_value] != self.read_calculated_value_hnd_dict["max_val"]) and (self.read_calculated_value_hnd_dict[chosen_value] != self.read_calculated_value_hnd_dict["min_val"]) and (self.read_calculated_value_hnd_dict[chosen_value] != self.read_calculated_value_hnd_dict["amplitude"])):
-            #becouse it is a tuple with one element
             result = hexStrToFloat(response)
             return result[0]
         result = int(response[-4:],16)
-        print(result)
-        print(chosen_value + " " +response)
         return result
 
     def read_signal(self):
@@ -100,19 +96,16 @@ class Sensor:
             self.child.expect("Characteristic value/descriptor: ", timeout=10)
             self.child.expect("\r\n", timeout=10)
             result = str(self.child.before)
-            print(result)
             for x in range(3, len(result),3):
                 current_element = str((result[x:x+2]))
                 if current_element != 'ff':
                     result_array = np.append(result_array, hexStrToInt8(current_element))
             control = result[0:2]
-        print(np.size(result_array))
         result_array[0] = 0
         return result_array
 
     def set_threshold_for_threshold_exceeded_monitoring(self, threshold):
             command = "char-write-cmd " + self.hnd_set_threshold_for_monitoring + " " + self.threshold_monitoring_write_value + '{:04x}'.format(int(threshold))
-            print(command)
             self.child.sendline(command)
 
     def monitor_threshold_exceeded(self):
@@ -129,4 +122,8 @@ class Sensor:
             self.child.expect("\r\n", timeout=0.1)
         except:
             return False
+        self._zero_val_offset = hexStrToInt16((str(self.child.before)).replace(" ", ""))
         return True
+    
+    def get_offset(self):
+        return self._zero_val_offset

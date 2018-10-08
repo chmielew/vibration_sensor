@@ -25,11 +25,14 @@ axes_line_color = [0.2, 0.64, 0.81]
 
 sensor = Sensor()
 
-def convert_raw_to_g(raw_value):
-    offset = 0
+def convert_raw_to_g(raw_value, offset):
     factor = 0.0244140625
-    real_val = (raw_value+offset)*factor
+    real_val = (raw_value-offset)*factor
     return real_val
+
+def convert_g_to_raw_for_th_monitoring(g_value):
+    factor = 0.0244140625
+    return (int(g_value)/factor)
 
 class SensorScreenManager(ScreenManager):
     pass
@@ -79,8 +82,9 @@ class ControlScreen(Screen):
             Clock.schedule_interval(self.are_results_ready_callback, 0.5)
             
     def are_results_ready_callback(self, dt):
-        if(sensor.is_measurement_finished):
+        if(sensor.is_measurement_finished()):
             Clock.unschedule(self.are_results_ready_callback)
+            sleep(2)
             self.download_results()
             self.popup.dismiss()
             self.update_gui()
@@ -109,11 +113,19 @@ class ControlScreen(Screen):
         self.amplitude = sensor.read_calculated_value("amplitude")
         self.crest_factor = sensor.read_calculated_value("crest_factor")
         self.time_signal = sensor.read_signal()
-        self.fft_signal = sensor.read_fft()
+        # self.fft_signal = sensor.read_fft()
         
     def update_gui(self):
+        offset = sensor.get_offset()
+        self.rms = convert_raw_to_g(self.rms, offset)
+        self.average = convert_raw_to_g(self.average, offset)
+        self.max_val = convert_raw_to_g(self.max_val, offset)
+        self.min_val = convert_raw_to_g(self.min_val, offset)
+        self.amplitude = convert_raw_to_g(self.amplitude, 0)
+        self.time_signal = convert_raw_to_g(self.time_signal, offset)
+
         self.ids.accordion_time_results.update_figure(self.time_signal_x, self.time_signal)
-        self.ids.accordion_fourier_results.update_figure(self.fft_signal_x, self.fft_signal)
+        # self.ids.accordion_fourier_results.update_figure(self.fft_signal_x, self.fft_signal)
         self.ids.textinput_indicator_rms.text = str((self.rms))
         self.ids.textinput_indicator_average.text = str((self.average))
         self.ids.textinput_indicator_maxval.text = str((self.max_val))
@@ -122,7 +134,7 @@ class ControlScreen(Screen):
         self.ids.textinput_indicator_crestfactor.text = str((self.crest_factor)) 
 
     def set_monitoring_threshold(self, threshold):
-        sensor.set_threshold_for_threshold_exceeded_monitoring(threshold)
+        sensor.set_threshold_for_threshold_exceeded_monitoring(convert_g_to_raw_for_th_monitoring(threshold))
         Clock.unschedule(self.threshold_monitoring_callback)
         Clock.schedule_interval(self.threshold_monitoring_callback, 0.2)
 
@@ -174,7 +186,7 @@ class TimeResultsAccordion(ResultsAccordion):
 
     def __init__(self, **kwargs):
         super(TimeResultsAccordion, self).__init__(**kwargs)
-        self.layout = BoxLayout(padding=[50, 0, 50, 150])
+        self.layout = BoxLayout(padding=[50, -110, 50, 200])
         self.create_figure()
         self.ax.set_title('Acceleration')
         self.ax.title.set_color(text_color)
@@ -194,7 +206,7 @@ class FftResultsAccordion(ResultsAccordion):
 
     def __init__(self, **kwargs):
         super(FftResultsAccordion, self).__init__(**kwargs)
-        self.layout = BoxLayout(padding=[50, 0, 50, 150])
+        self.layout = BoxLayout(padding=[50, -25, 50, 110])
         self.create_figure()
         self.ax.set_title('FFT')
         self.ax.title.set_color(text_color)

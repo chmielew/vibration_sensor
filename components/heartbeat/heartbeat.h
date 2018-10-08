@@ -1,18 +1,11 @@
-/*
- * heartbeat.h
- *
- *  Created on: 16 sty 2018
- *      Author: chmielew
- *
- *  Simple component which uses chosen pin as toggling output to toggle LED.
- */
+/** heartbeat.h **/
 
 #ifndef COMPONENTS_HEARTBEAT_HEARTBEAT_H_
 #define COMPONENTS_HEARTBEAT_HEARTBEAT_H_
+
 //////////////////////////////////////////////////////////////////////////////////////////
 //Includes																				//
 //////////////////////////////////////////////////////////////////////////////////////////
-
 
 //////////////////////////////////////////////////////////////////////////////////////////
 //Macros																				//
@@ -32,7 +25,7 @@
 
 /****************************************************************************************\
 Function:
-blink_alive_Init
+heartbeat_init
 ******************************************************************************************
 Parameters:
 None
@@ -44,13 +37,13 @@ void heartbeat_init(void);
 
 /****************************************************************************************\
 Function:
-blink_alive_task
+heartbeat_task
 ******************************************************************************************
 Parameters:
 void *pvParameter - standard parameter needed for task creation
 ******************************************************************************************
 Abstract:
-This is blink_alive_task. The BLINK_GPIO toggles every second.
+Simple heartbeat task, which toggles output on chosen pin to blink the LED.
 \****************************************************************************************/
 void heartbeat_task(void *pvParameter);
 

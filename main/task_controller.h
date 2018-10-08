@@ -1,17 +1,12 @@
-/*
- * task_creator.h
- *
- *  Created on: 16 sty 2018
- *      Author: chmielew
- *	This is task creator.
- */
+/** task_controller.h **/
 
-#ifndef MAIN_TASK_CREATOR_H_
-#define MAIN_TASK_CREATOR_H_
+#ifndef MAIN_TASK_CONTROLLER_H_
+#define MAIN_TASK_CONTROLLER_H_
 
 //////////////////////////////////////////////////////////////////////////////////////////
 //Includes																				//
 //////////////////////////////////////////////////////////////////////////////////////////
+#include "esp_event_loop.h"
 
 //////////////////////////////////////////////////////////////////////////////////////////
 //Macros																				//
@@ -20,6 +15,18 @@
 //////////////////////////////////////////////////////////////////////////////////////////
 //Global typedefs																		//
 //////////////////////////////////////////////////////////////////////////////////////////
+
+/** enum defining list of available task handles **/
+typedef enum{
+	HEARTBEAT_TASK_HANDLE = 0,
+	THRESHOLD_EXCEEDED_TASK_HANDLE = 1,
+	CALCULATION_RMS_TASK_HANDLE = 2,
+	CALCULATION_AVERAGE_TASK_HANDLE = 3,
+	CALCULATION_RANGE_TASK_HANDLE = 4,
+	CALCULATION_AMPLITUDE_TASK_HANDLE = 5,
+	CALCULATION_CREST_FACTOR_TASK_HANDLE = 6,
+	TASK_HANDLE_SIZE = 7
+} task_handle;
 
 //////////////////////////////////////////////////////////////////////////////////////////
 //Global variables																		//
@@ -41,8 +48,20 @@ This function creates initial tasks. It should be called right after initializat
 \****************************************************************************************/
 void entry_task_creator(void);
 
+/****************************************************************************************\
+Function:
+get_task_handle
+******************************************************************************************
+Parameters:
+task_handle task_hnd - handle of the desired task
+******************************************************************************************
+Abstract:
+This function return handle to the desired task handle.
+\****************************************************************************************/
+TaskHandle_t get_task_handle(task_handle task_hnd);
+
 //////////////////////////////////////////////////////////////////////////////////////////
-//End of file																			//
+//End of file										//
 //////////////////////////////////////////////////////////////////////////////////////////
 
-#endif /* MAIN_TASK_CREATOR_H_ */
+#endif /* MAIN_TASK_CONTROLLER_H_ */
